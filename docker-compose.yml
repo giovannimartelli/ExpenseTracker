@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: expense-postgres
+    environment:
+      POSTGRES_USER: expenseuser
+      POSTGRES_PASSWORD: changeme123
+      POSTGRES_DB: expenses
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U expenseuser -d expenses"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: expense-bot
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - ConnectionStrings__Default=Host=postgres;Database=expenses;Username=expenseuser;Password=changeme123
+      - Telegram__BotToken=token
+      - Telegram__AllowedUsername__0=value1
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
