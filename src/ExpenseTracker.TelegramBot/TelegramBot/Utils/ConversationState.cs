@@ -7,6 +7,8 @@ public class ConversationState
     public string? SelectedCategoryName { get; set; }
     public int? SelectedSubCategoryId { get; set; }
     public string? SelectedSubCategoryName { get; set; }
+    public int? SelectedTagId { get; set; }
+    public string? SelectedTagName { get; set; }
     public string? Description { get; set; }
     public int? LastBotMessageId { get; set; }
     
@@ -31,6 +33,8 @@ public class ConversationState
         SelectedCategoryName = null;
         SelectedSubCategoryId = null;
         SelectedSubCategoryName = null;
+        SelectedTagId = null;
+        SelectedTagName = null;
         Description = null;
         LastBotMessageId = null;
         CreatedSubCategoryId = null;

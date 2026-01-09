@@ -18,9 +18,12 @@ public class InsertExpenseFlowHandler(IServiceScopeFactory scopeFactory, ILogger
 
     private const string CallbackCategoryPrefix = "addexpenses_cat";
     private const string CallbackSubCategoryPrefix = "addexpenses_sub";
+    private const string CallbackTagPrefix = "addexpenses_tag";
+    private const string CallbackSkipTag = "addexpenses_skiptag";
 
     private const string SelectCategoryStep = "AddExpense_SelectCategory";
     private const string SelectSubCategoryStep = "AddExpense_SelectSubCategory";
+    private const string SelectTagStep = "AddExpense_SelectTag";
     private const string AddDescriptionStep = "AddExpense_AddDescription";
     private const string InsertAmountStep = "AddExpense_InsertAmount";
 
@@ -44,6 +47,7 @@ public class InsertExpenseFlowHandler(IServiceScopeFactory scopeFactory, ILogger
         {
             SelectCategoryStep => callbackName == CallbackCategoryPrefix,
             SelectSubCategoryStep => callbackName == CallbackSubCategoryPrefix,
+            SelectTagStep => callbackName is CallbackTagPrefix or CallbackSkipTag,
             _ => false
         };
     }
@@ -97,9 +101,50 @@ public class InsertExpenseFlowHandler(IServiceScopeFactory scopeFactory, ILogger
 
             state.SelectedSubCategoryId = subCategoryId;
             state.SelectedSubCategoryName = subCategory.Name;
-            state.Step = AddDescriptionStep;
 
             logger.LogInformation("SubCategory selected: {SubCategoryId} - {SubCategoryName}", subCategoryId, subCategory.Name);
+
+            // Check if subcategory has tags
+            var tags = await categoryService.GetTagsBySubCategoryIdAsync(subCategoryId);
+            if (tags.Count > 0)
+            {
+                state.Step = SelectTagStep;
+                await ShowTagsAsync(botClient, chat, state, tags, cancellationToken);
+            }
+            else
+            {
+                state.Step = AddDescriptionStep;
+                await AskForDescriptionAsync(botClient, chat, state, cancellationToken);
+            }
+        }
+        else if (callbackName == CallbackTagPrefix)
+        {
+            var tagId = int.Parse(callbackData);
+
+            using var scope = scopeFactory.CreateScope();
+            var categoryService = scope.ServiceProvider.GetRequiredService<CategoryService>();
+            var tag = await categoryService.GetTagByIdAsync(tagId);
+
+            if (tag == null)
+            {
+                await botClient.SendMessage(chat.Id, "❌ Tag not found.", cancellationToken: cancellationToken);
+                return;
+            }
+
+            state.SelectedTagId = tagId;
+            state.SelectedTagName = tag.Name;
+            state.Step = AddDescriptionStep;
+
+            logger.LogInformation("Tag selected: {TagId} - {TagName}", tagId, tag.Name);
+            await AskForDescriptionAsync(botClient, chat, state, cancellationToken);
+        }
+        else if (callbackName == CallbackSkipTag)
+        {
+            state.SelectedTagId = null;
+            state.SelectedTagName = null;
+            state.Step = AddDescriptionStep;
+
+            logger.LogInformation("Tag skipped");
             await AskForDescriptionAsync(botClient, chat, state, cancellationToken);
         }
     }
@@ -134,6 +179,7 @@ public class InsertExpenseFlowHandler(IServiceScopeFactory scopeFactory, ILogger
 
     public override bool CanHandleBack(ConversationState state) =>
         state.Step is SelectSubCategoryStep
+            or SelectTagStep
             or AddDescriptionStep
             or InsertAmountStep;
 
@@ -155,8 +201,30 @@ public class InsertExpenseFlowHandler(IServiceScopeFactory scopeFactory, ILogger
                 await ShowCategoriesAsync(botClient, chat, state, cancellationToken);
                 return true;
 
-            case AddDescriptionStep:
+            case SelectTagStep:
                 // Go back to subcategory selection
+                state.SelectedSubCategoryId = null;
+                state.SelectedSubCategoryName = null;
+                state.Step = SelectSubCategoryStep;
+                await ShowSubCategoriesAsync(botClient, chat, state, cancellationToken);
+                return true;
+
+            case AddDescriptionStep:
+                // Go back to tag selection if there were tags, otherwise to subcategory
+                state.SelectedTagId = null;
+                state.SelectedTagName = null;
+                using (var scope = scopeFactory.CreateScope())
+                {
+                    var categoryService = scope.ServiceProvider.GetRequiredService<CategoryService>();
+                    var tags = await categoryService.GetTagsBySubCategoryIdAsync(state.SelectedSubCategoryId!.Value);
+                    if (tags.Count > 0)
+                    {
+                        state.Step = SelectTagStep;
+                        await ShowTagsAsync(botClient, chat, state, tags, cancellationToken);
+                        return true;
+                    }
+                }
+
                 state.SelectedSubCategoryId = null;
                 state.SelectedSubCategoryName = null;
                 state.Step = SelectSubCategoryStep;
@@ -226,6 +294,34 @@ public class InsertExpenseFlowHandler(IServiceScopeFactory scopeFactory, ILogger
 
         var keyboard = new InlineKeyboardMarkup(buttons);
         var text = $"📁 *{state.SelectedCategoryName}*\n\n📂 Select a subcategory:";
+
+        var msg = await botClient.TryEditOrSendFlowMessageAsync(
+            chat.Id,
+            state,
+            text,
+            ParseMode.Markdown,
+            keyboard,
+            cancellationToken);
+
+        state.LastBotMessageId = msg.MessageId;
+    }
+
+    private async Task ShowTagsAsync(
+        ITelegramBotClient botClient,
+        Chat chat,
+        ConversationState state,
+        List<Domain.Entities.Tag> tags,
+        CancellationToken cancellationToken)
+    {
+        var buttons = tags
+            .Select(t => new[] { Utils.Utils.ButtonWithCallbackdata($"🏷️ {t.Name}", CallbackTagPrefix, t.Id) })
+            .ToList();
+
+        buttons.Add([Utils.Utils.ButtonWithCallbackdata("⏭️ Salta", CallbackSkipTag, "skip")]);
+        buttons.Add([Utils.Utils.Back]);
+
+        var keyboard = new InlineKeyboardMarkup(buttons);
+        var text = $"📁 *{state.SelectedCategoryName}* > *{state.SelectedSubCategoryName}*\n\n🏷️ Seleziona un tag:";
 
         var msg = await botClient.TryEditOrSendFlowMessageAsync(
             chat.Id,
@@ -321,18 +417,22 @@ public class InsertExpenseFlowHandler(IServiceScopeFactory scopeFactory, ILogger
                 description: state.Description ?? throw new InvalidOperationException("Description cannot be null"),
                 notes: null,
                 performedBy: chat.Username ?? chat.Id.ToString(),
-                tagId: null);
+                tagId: state.SelectedTagId);
 
-            logger.LogInformation("Expense created: {Amount} - {Description}", amount, state.Description);
+            logger.LogInformation("Expense created: {Amount} - {Description} - Tag: {TagId}", amount, state.Description, state.SelectedTagId);
+
+            // Build confirmation message
+            var tagInfo = state.SelectedTagName != null ? $"\n🏷️ {state.SelectedTagName}" : "";
+            var confirmationText = $"✅ *Expense successfully recorded!*\n\n" +
+                                   $"📁 {state.SelectedCategoryName} > {state.SelectedSubCategoryName}{tagInfo}\n" +
+                                   $"📝 {state.Description}\n" +
+                                   $"💰 €{amount:F2}";
 
             // Update message with confirmation
             await botClient.EditMessageText(
                 chatId: chat.Id,
                 messageId: state.LastBotMessageId!.Value,
-                text: $"✅ *Expense successfully recorded!*\n\n" +
-                      $"📁 {state.SelectedCategoryName} > {state.SelectedSubCategoryName}\n" +
-                      $"📝 {state.Description}\n" +
-                      $"💰 €{amount:F2}",
+                text: confirmationText,
                 parseMode: ParseMode.Markdown,
                 replyMarkup: new InlineKeyboardMarkup([
                     [Utils.Utils.MainMenu]

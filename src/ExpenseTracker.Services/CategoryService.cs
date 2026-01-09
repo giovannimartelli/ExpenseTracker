@@ -26,6 +26,16 @@ public class CategoryService(AppDbContext context)
         await context.SubCategories
             .FirstOrDefaultAsync(sc => sc.Id == id);
 
+    public async Task<List<Tag>> GetTagsBySubCategoryIdAsync(int subCategoryId) =>
+        await context.Tags
+            .Where(t => t.SubCategoryId == subCategoryId)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+
+    public async Task<Tag?> GetTagByIdAsync(int id) =>
+        await context.Tags
+            .FirstOrDefaultAsync(t => t.Id == id);
+
     public async Task CreateNewCategoryAsync(string name)
     {
         var cat = await context.Categories.SingleOrDefaultAsync(c => c.Name == name);

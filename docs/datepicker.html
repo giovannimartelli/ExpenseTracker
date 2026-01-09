@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Seleziona Data</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 400px;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+            color: var(--tg-theme-text-color, #000000);
+        }
+
+        .date-input-wrapper {
+            position: relative;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        input[type="date"] {
+            width: 100%;
+            padding: 16px;
+            font-size: 18px;
+            border: 2px solid var(--tg-theme-button-color, #3390ec);
+            border-radius: 12px;
+            background-color: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input[type="date"]:focus {
+            border-color: var(--tg-theme-button-text-color, #ffffff);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-direction: column;
+        }
+
+        button {
+            width: 100%;
+            padding: 16px;
+            font-size: 18px;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            color: var(--tg-theme-button-text-color, #ffffff);
+            background-color: var(--tg-theme-button-color, #3390ec);
+        }
+
+        button:active {
+            opacity: 0.8;
+        }
+
+        button.secondary {
+            background-color: var(--tg-theme-secondary-bg-color, #f0f0f0);
+            color: var(--tg-theme-text-color, #000000);
+        }
+
+        .quick-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .quick-button {
+            padding: 12px;
+            font-size: 14px;
+            background-color: var(--tg-theme-secondary-bg-color, #f0f0f0);
+            color: var(--tg-theme-text-color, #000000);
+        }
+
+        .error-message {
+            color: #ff3b30;
+            text-align: center;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📅 Seleziona Data</h1>
+
+        <div class="quick-buttons">
+            <button class="quick-button" onclick="setToday()">Oggi</button>
+            <button class="quick-button" onclick="setYesterday()">Ieri</button>
+            <button class="quick-button" onclick="setLastWeek()">7 giorni fa</button>
+            <button class="quick-button" onclick="setLastMonth()">30 giorni fa</button>
+        </div>
+
+        <div class="date-input-wrapper">
+            <input type="date" id="datePicker" />
+        </div>
+
+        <div class="button-group">
+            <button onclick="sendDate()">✅ Conferma</button>
+            <button class="secondary" onclick="close()">❌ Annulla</button>
+        </div>
+
+        <div class="error-message" id="errorMessage">
+            Seleziona una data valida
+        </div>
+    </div>
+
+    <script>
+        // Initialize Telegram WebApp
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.enableClosingConfirmation();
+
+        // Set default to today
+        const dateInput = document.getElementById('datePicker');
+        const today = new Date();
+        dateInput.value = formatDate(today);
+        dateInput.max = formatDate(today); // Prevent future dates
+
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function setToday() {
+            dateInput.value = formatDate(new Date());
+        }
+
+        function setYesterday() {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            dateInput.value = formatDate(yesterday);
+        }
+
+        function setLastWeek() {
+            const lastWeek = new Date();
+            lastWeek.setDate(lastWeek.getDate() - 7);
+            dateInput.value = formatDate(lastWeek);
+        }
+
+        function setLastMonth() {
+            const lastMonth = new Date();
+            lastMonth.setDate(lastMonth.getDate() - 30);
+            dateInput.value = formatDate(lastMonth);
+        }
+
+        function sendDate() {
+            const selectedDate = dateInput.value;
+            const errorMessage = document.getElementById('errorMessage');
+
+            if (!selectedDate) {
+                errorMessage.classList.add('show');
+                setTimeout(() => errorMessage.classList.remove('show'), 3000);
+                return;
+            }
+
+            // Parse and validate date
+            const selected = new Date(selectedDate + 'T00:00:00');
+            const now = new Date();
+            now.setHours(0, 0, 0, 0);
+
+            if (selected > now) {
+                errorMessage.textContent = 'Non puoi selezionare una data futura';
+                errorMessage.classList.add('show');
+                setTimeout(() => errorMessage.classList.remove('show'), 3000);
+                return;
+            }
+
+            // Send data back to bot in ISO format
+            tg.sendData(selectedDate);
+            tg.close();
+        }
+
+        function close() {
+            tg.close();
+        }
+
+        // Listen for theme changes
+        tg.onEvent('themeChanged', function() {
+            console.log('Theme changed');
+        });
+    </script>
+</body>
+</html>
