@@ -16,6 +16,9 @@ public class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
 
         builder.Property(e => e.Id).ValueGeneratedOnAdd();
         
+        builder.Property(e => e.CreatedAt)
+            .HasColumnType("date");
+        
         builder.HasOne(e => e.SubCategory)
             .WithMany(c => c.Expenses)
             .HasForeignKey(e => e.SubCategoryId)

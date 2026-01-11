@@ -6,14 +6,14 @@ namespace ExpenseTracker.Services;
 
 public class ExpenseService(AppDbContext context)
 {
-    public async Task CreateExpenseAsync(int subCategoryId, decimal amount, string description, string? notes, string performedBy, int? tagId)
+    public async Task CreateExpenseAsync(int subCategoryId, decimal amount, string description, string? notes, string performedBy, int? tagId, DateOnly date)
     {
         var expense = new Expense
         {
             SubCategoryId = subCategoryId,
             Amount = amount,
             Description = description,
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = date,
             TagId = tagId,
             Notes = notes,
             PerformedBy = performedBy
@@ -22,7 +22,7 @@ public class ExpenseService(AppDbContext context)
         await context.SaveChangesAsync();
     }
 
-    public async Task<List<Expense>> GetExpensesByDateRangeAsync(DateTime from, DateTime to) =>
+    public async Task<List<Expense>> GetExpensesByDateRangeAsync(DateOnly from, DateOnly to) =>
         await context.Expenses
             .Include(e => e.SubCategory)
             .ThenInclude(sc => sc.Category)

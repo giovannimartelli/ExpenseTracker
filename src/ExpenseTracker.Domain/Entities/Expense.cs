@@ -8,7 +8,7 @@ public class Expense
 
     public required decimal Amount { get; set; }
     public required int SubCategoryId { get; set; }
-    public required DateTime CreatedAt { get; set; }
+    public required DateOnly CreatedAt { get; set; }
     public required string Description { get; set; }
     public required string? Notes { get; set; }
     public int? TagId { get; set; }
