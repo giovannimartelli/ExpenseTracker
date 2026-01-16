@@ -15,16 +15,17 @@ public class FlowController
 {
     private readonly List<FlowHandler> _handlers;
     private readonly ILogger<FlowController> _logger;
-    private readonly ReplyKeyboardMarkup _mainMenuKeyboard;
+
+    public ReplyKeyboardMarkup MainMenuKeyboard { get; }
 
     public FlowController(IEnumerable<FlowHandler> handlers, ILogger<FlowController> logger)
     {
         _handlers = handlers.ToList();
         _logger = logger;
-        _mainMenuKeyboard = GenerateMainMenuKeyboard();
+        MainMenuKeyboard = GenerateMainMenuKeyboard();
     }
 
-    public ReplyKeyboardMarkup GenerateMainMenuKeyboard()
+    private ReplyKeyboardMarkup GenerateMainMenuKeyboard()
     {
         var menuItems = _handlers
             .Select(h => h.GetMenuItemInfo())
@@ -186,7 +187,7 @@ public class FlowController
                 chatId: chat.Id,
                 text: text,
                 parseMode: ParseMode.Markdown,
-                replyMarkup: _mainMenuKeyboard,
+                replyMarkup: MainMenuKeyboard,
                 cancellationToken: cancellationToken);
 
             // Store the main menu message ID

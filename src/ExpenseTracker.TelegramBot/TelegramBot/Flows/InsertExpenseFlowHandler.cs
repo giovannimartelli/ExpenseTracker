@@ -16,6 +16,7 @@ namespace ExpenseTracker.TelegramBot.TelegramBot.Flows;
 public class InsertExpenseFlowHandler(
     IServiceScopeFactory scopeFactory,
     IOptions<WebAppOptions> webAppOptions,
+    Lazy<FlowController> flowController,
     ILogger<InsertExpenseFlowHandler> logger) : FlowHandler
 {
     private readonly WebAppOptions _webAppOptions = webAppOptions.Value;
@@ -582,7 +583,7 @@ public class InsertExpenseFlowHandler(
             await botClient.SendMessage(
                 chatId: chat.Id,
                 text: "❌ Si è verificato un errore durante il salvataggio. Riprova.",
-                replyMarkup: GetMainMenuKeyboard(),
+                replyMarkup: flowController.Value.MainMenuKeyboard,
                 cancellationToken: cancellationToken);
         }
     }
@@ -596,7 +597,7 @@ public class InsertExpenseFlowHandler(
             chatId: chat.Id,
             text: "👋 *Menu principale*\n\nScegli un'operazione:",
             parseMode: ParseMode.Markdown,
-            replyMarkup: GetMainMenuKeyboard(),
+            replyMarkup: flowController.Value.MainMenuKeyboard,
             cancellationToken: cancellationToken);
     }
 
@@ -611,19 +612,7 @@ public class InsertExpenseFlowHandler(
             state,
             text: "👋 *Menu principale*\n\nScegli un'operazione:",
             parseMode: ParseMode.Markdown,
-            replyMarkup: GetMainMenuKeyboard(),
+            replyMarkup: flowController.Value.MainMenuKeyboard,
             cancellationToken: cancellationToken);
-    }
-
-    private static ReplyKeyboardMarkup GetMainMenuKeyboard()
-    {
-        return new ReplyKeyboardMarkup(new[]
-        {
-            new[] { new KeyboardButton(MenuCommandText) },
-            new[] { new KeyboardButton("⚙️ Settings") }
-        })
-        {
-            ResizeKeyboard = true
-        };
     }
 }

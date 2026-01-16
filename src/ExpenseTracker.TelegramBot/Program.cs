@@ -41,6 +41,8 @@ foreach (var handlerType in flowHandlerTypes)
 
 // Register FlowController as Singleton (stateless, menu keyboard is built once)
 builder.Services.AddSingleton<FlowController>();
+// Lazy<FlowController> to break circular dependency (FlowHandler -> FlowController -> FlowHandler)
+builder.Services.AddSingleton(sp => new Lazy<FlowController>(sp.GetRequiredService<FlowController>));
 
 // Register the new BotService that uses FlowController
 builder.Services.AddHostedService<BotService>();
