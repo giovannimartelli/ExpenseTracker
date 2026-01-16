@@ -29,8 +29,9 @@ public class InsertExpenseFlowHandler(
     private const string CallbackSkipTag = "addexpenses_skiptag";
 
     // Date selection buttons (ReplyKeyboard - text messages)
-    private const string ButtonUseTodayDate = "📅 Usa data di oggi";
-    private const string ButtonChooseDate = "📆 Scegli altra data";
+    private const string ButtonToday = "📅 Oggi";
+    private const string ButtonDatePrefix = "📆 "; // Prefix for date buttons like "📆 Ieri", "📆 14/01"
+    private const string ButtonChooseDate = "🗓️ Scegli altra data";
     private const string ButtonBack = "◀️ Indietro";
     private const string ButtonMainMenu = "🏠 Menu principale";
 
@@ -209,10 +210,16 @@ public class InsertExpenseFlowHandler(
         InsertExpenseFlowData flowData,
         CancellationToken cancellationToken)
     {
-        if (text == ButtonUseTodayDate)
+        if (text == ButtonToday)
         {
-            flowData.SelectedDate = DateOnly.FromDateTime(DateTime.UtcNow);
+            flowData.SelectedDate = DateOnly.FromDateTime(DateTime.Now);
             logger.LogInformation("Using today's date: {Date}", flowData.SelectedDate);
+            await SaveExpenseAsync(botClient, chat, state, flowData, cancellationToken);
+        }
+        else if (text.StartsWith(ButtonDatePrefix) && TryParseDateButton(text, out var selectedDate))
+        {
+            flowData.SelectedDate = selectedDate;
+            logger.LogInformation("Using selected date: {Date}", flowData.SelectedDate);
             await SaveExpenseAsync(botClient, chat, state, flowData, cancellationToken);
         }
         else if (text == ButtonBack)
@@ -228,6 +235,47 @@ public class InsertExpenseFlowHandler(
             logger.LogInformation("Returning to main menu");
             await ShowMainMenuMessageAsync(botClient, chat, cancellationToken);
         }
+    }
+
+    private static bool TryParseDateButton(string text, out DateOnly date)
+    {
+        date = default;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+
+        // Remove the prefix emoji
+        var dateText = text.Replace(ButtonDatePrefix, "").Trim();
+
+        // Check for "Ieri"
+        if (dateText == "Ieri")
+        {
+            date = today.AddDays(-1);
+            return true;
+        }
+
+        // Try to parse date in format "dd/MM"
+        var parts = dateText.Split('/');
+        if (parts.Length == 2 &&
+            int.TryParse(parts[0], out var day) &&
+            int.TryParse(parts[1], out var month))
+        {
+            // Use current year, but if the resulting date is in the future, use previous year
+            var year = today.Year;
+            try
+            {
+                date = new DateOnly(year, month, day);
+                if (date > today)
+                {
+                    date = new DateOnly(year - 1, month, day);
+                }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     public override bool CanHandleBack(ConversationState state)
@@ -496,9 +544,34 @@ public class InsertExpenseFlowHandler(
         InsertExpenseFlowData flowData,
         CancellationToken cancellationToken)
     {
+        var today = DateTime.Now;
+
+        // Build date buttons for the past 6 days
+        var pastDayButtons = new List<KeyboardButton>();
+        for (var i = 1; i <= 6; i++)
+        {
+            var pastDate = today.AddDays(-i);
+            var label = i == 1
+                ? $"{ButtonDatePrefix}Ieri"
+                : $"{ButtonDatePrefix}{pastDate:dd/MM}";
+            pastDayButtons.Add(new KeyboardButton(label));
+        }
+
+        // Layout:
+        // Row 1: "Oggi" (spanning visually by being alone or with empty space - we use one button)
+        // Row 2: Ieri, -2 days
+        // Row 3: -3 days, -4 days
+        // Row 4: -5 days, -6 days
+        // Row 5: Choose other date (WebApp)
+        // Row 6: Back
+        // Row 7: Main Menu
         var replyKeyboard = new ReplyKeyboardMarkup(new[]
         {
-            new[] { new KeyboardButton(ButtonUseTodayDate), KeyboardButton.WithWebApp(ButtonChooseDate, new WebAppInfo { Url = _webAppOptions.DatePickerUrl }) },
+            new[] { new KeyboardButton(ButtonToday) }, // "Oggi" on 2 columns
+            new[] { pastDayButtons[0], pastDayButtons[1] }, // Ieri, -2 days
+            new[] { pastDayButtons[2], pastDayButtons[3] }, // -3 days, -4 days
+            new[] { pastDayButtons[4], pastDayButtons[5] }, // -5 days, -6 days
+            new[] { KeyboardButton.WithWebApp(ButtonChooseDate, new WebAppInfo { Url = _webAppOptions.DatePickerUrl }) },
             new[] { new KeyboardButton(ButtonBack) },
             new[] { new KeyboardButton(ButtonMainMenu) }
         })
