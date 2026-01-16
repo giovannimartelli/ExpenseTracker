@@ -14,13 +14,15 @@ namespace ExpenseTracker.TelegramBot.TelegramBot.Flows;
 /// Entry from SettingsRoot via callback settings_expenses/expenses.
 /// Flow: select action -> (add category -> text) OR (add subcategory -> pick cat -> text)
 /// </summary>
-public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<ExpensesFlowHandler> logger) : FlowHandler, ISubFlow
+public class ExpensesFlowHandler(
+    IServiceScopeFactory scopeFactory,
+    IServiceProvider serviceProvider,
+    ILogger<ExpensesFlowHandler> logger) : FlowHandler, ISubFlow
 {
-    // ISettingsSubFlow contract
+    // ISubFlow contract
     public string SettingsMenuText => "⚙️ Impostazioni spese";
     public string SettingsCallbackName => CallbackSettingsExpenses;
     public string SettingsCallbackData => "expenses";
-    public string SettingsEntryStep => StepSelectAction;
 
     private const string CallbackSettingsExpenses = "settings_expenses";
     private const string CallbackAddCategory = "settings_addcat";
@@ -29,13 +31,6 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
     private const string CallbackAddTag = "settings_addtag";
     private const string CallbackSkipTags = "settings_skiptags";
     private const string CallbackDoneTags = "settings_donetags";
-
-    private const string StepSelectAction = "SettingsExpenses_SelectAction";
-    private const string StepAddCategory = "SettingsExpenses_AddCategory";
-    private const string StepSelectCategoryForSub = "SettingsExpenses_SelectCategoryForSub";
-    private const string StepAddSubCategory = "SettingsExpenses_AddSubCategory";
-    private const string StepAskAddTag = "SettingsExpenses_AskAddTag";
-    private const string StepAddTag = "SettingsExpenses_AddTag";
 
     public override string? GetMenuItemInfo() => null;
 
@@ -47,19 +42,21 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
         ConversationState state,
         CancellationToken cancellationToken)
     {
-        // Not invoked directly from main menu
-        throw new UnreachableException($"Can't be there if {CanHandleTextInput} returns false");
+        throw new UnreachableException("ExpensesFlowHandler is a sub-flow, not a main menu item");
     }
 
     public override bool CanHandleCallback(string callbackName, string callbackData, ConversationState state)
     {
+        var flowData = state.GetFlowData<SettingsExpensesFlowData>();
+        if (flowData == null) return false;
+
         return callbackName switch
         {
             CallbackSettingsExpenses => callbackData == SettingsCallbackData,
-            CallbackAddCategory or CallbackAddSubCategory => state.Step == StepSelectAction,
-            CallbackPickCategory => state.Step == StepSelectCategoryForSub,
-            CallbackAddTag or CallbackSkipTags => state.Step == StepAskAddTag,
-            CallbackDoneTags => state.Step == StepAddTag,
+            CallbackAddCategory or CallbackAddSubCategory => flowData.CurrentStep == SettingsExpensesFlowData.StepSelectAction,
+            CallbackPickCategory => flowData.CurrentStep == SettingsExpensesFlowData.StepSelectCategoryForSub,
+            CallbackAddTag or CallbackSkipTags => flowData.CurrentStep == SettingsExpensesFlowData.StepAskAddTag,
+            CallbackDoneTags => flowData.CurrentStep == SettingsExpensesFlowData.StepAddTag,
             _ => false
         };
     }
@@ -70,8 +67,10 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
         ConversationState state,
         CancellationToken cancellationToken)
     {
-        state.Step = StepSelectAction;
-        await ShowActionsAsync(botClient, chat, state, cancellationToken);
+        var flowData = new SettingsExpensesFlowData();
+        state.SetFlowData(flowData);
+
+        await ShowActionsAsync(botClient, chat, state, flowData, cancellationToken);
     }
 
     public override async Task HandleCallbackAsync(
@@ -83,22 +82,24 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
         CancellationToken cancellationToken)
     {
         var chat = callbackQuery.Message!.Chat;
+        var flowData = state.GetFlowData<SettingsExpensesFlowData>()!;
+
         await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
 
         switch (callbackName)
         {
             case CallbackSettingsExpenses when callbackData == SettingsCallbackData:
-                state.Step = StepSelectAction;
-                await ShowActionsAsync(botClient, chat, state, cancellationToken);
+                flowData.CurrentStep = SettingsExpensesFlowData.StepSelectAction;
+                await ShowActionsAsync(botClient, chat, state, flowData, cancellationToken);
                 return;
 
             case CallbackAddCategory:
-                state.Step = StepAddCategory;
+                flowData.CurrentStep = SettingsExpensesFlowData.StepAddCategory;
                 await AskForCategoryNameAsync(botClient, chat, state, cancellationToken);
                 return;
 
             case CallbackAddSubCategory:
-                state.Step = StepSelectCategoryForSub;
+                flowData.CurrentStep = SettingsExpensesFlowData.StepSelectCategoryForSub;
                 await ShowCategoriesForSubAsync(botClient, chat, state, cancellationToken);
                 return;
 
@@ -114,33 +115,46 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
                         return;
                     }
 
-                    state.SelectedCategoryId = category.Id;
-                    state.SelectedCategoryName = category.Name;
+                    flowData.CategoryId = category.Id;
+                    flowData.CategoryName = category.Name;
                 }
 
-                state.Step = StepAddSubCategory;
-                await AskForSubCategoryNameAsync(botClient, chat, state, cancellationToken);
+                flowData.CurrentStep = SettingsExpensesFlowData.StepAddSubCategory;
+                await AskForSubCategoryNameAsync(botClient, chat, state, flowData, cancellationToken);
                 return;
 
             case CallbackAddTag:
-                state.Step = StepAddTag;
-                await AskForTagNameAsync(botClient, chat, state, cancellationToken);
+                flowData.CurrentStep = SettingsExpensesFlowData.StepAddTag;
+                await AskForTagNameAsync(botClient, chat, state, flowData, cancellationToken);
                 return;
 
             case CallbackSkipTags:
             case CallbackDoneTags:
-                var createdSubCatName = state.CreatedSubCategoryName;
-                var createdForCat = state.SelectedCategoryName;
-                state.Reset();
-                state.Step = StepSelectAction;
-                await ShowActionsAsync(botClient, chat, state, cancellationToken,
-                    $"✅ Sottocategoria *{createdSubCatName}* creata in *{createdForCat}*");
+                var createdSubCatName = flowData.CreatedSubCategoryName;
+                var createdForCat = flowData.CategoryName;
+
+                // Return to settings root
+                var settingsFlowData = new SettingsFlowData();
+                state.SetFlowData(settingsFlowData);
+
+                var settingsHandler = serviceProvider.GetServices<FlowHandler>()
+                    .OfType<SettingsFlowHandler>()
+                    .First();
+
+                await settingsHandler.ShowSettingsRootAsync(botClient, chat, state, cancellationToken);
                 return;
         }
     }
 
-    public override bool CanHandleTextInput(ConversationState state) =>
-        state.Step is StepAddCategory or StepAddSubCategory or StepAddTag;
+    public override bool CanHandleTextInput(ConversationState state)
+    {
+        var flowData = state.GetFlowData<SettingsExpensesFlowData>();
+        if (flowData == null) return false;
+
+        return flowData.CurrentStep is SettingsExpensesFlowData.StepAddCategory
+            or SettingsExpensesFlowData.StepAddSubCategory
+            or SettingsExpensesFlowData.StepAddTag;
+    }
 
     public override async Task HandleTextInputAsync(
         ITelegramBotClient botClient,
@@ -150,65 +164,72 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
     {
         var chat = message.Chat;
         var text = message.Text!.Trim();
+        var flowData = state.GetFlowData<SettingsExpensesFlowData>()!;
 
-        if (state.Step == StepAddCategory)
+        if (flowData.CurrentStep == SettingsExpensesFlowData.StepAddCategory)
         {
             using var scope = scopeFactory.CreateScope();
             var categoryService = scope.ServiceProvider.GetRequiredService<CategoryService>();
             await categoryService.CreateNewCategoryAsync(text);
 
             logger.LogInformation("Created category {Name}", text);
-            state.Reset();
-            // Re-enter settings expenses menu
-            state.Step = StepSelectAction;
-            await ShowActionsAsync(botClient, chat, state, cancellationToken, $"✅ Categoria *{text}* creata");
+
+            flowData.CurrentStep = SettingsExpensesFlowData.StepSelectAction;
+            await ShowActionsAsync(botClient, chat, state, flowData, cancellationToken, $"✅ Categoria *{text}* creata");
         }
-        else if (state.Step == StepAddSubCategory)
+        else if (flowData.CurrentStep == SettingsExpensesFlowData.StepAddSubCategory)
         {
-            if (state.SelectedCategoryId is null)
+            if (flowData.CategoryId is null)
             {
                 await botClient.SendMessage(chat.Id, "❌ Seleziona prima una categoria.", cancellationToken: cancellationToken);
-                state.Step = StepSelectCategoryForSub;
+                flowData.CurrentStep = SettingsExpensesFlowData.StepSelectCategoryForSub;
                 await ShowCategoriesForSubAsync(botClient, chat, state, cancellationToken);
                 return;
             }
 
             using var scope = scopeFactory.CreateScope();
             var categoryService = scope.ServiceProvider.GetRequiredService<CategoryService>();
-            var createdSubCategory = await categoryService.CreateNewSubCategoryAsync(text, state.SelectedCategoryId.Value);
+            var createdSubCategory = await categoryService.CreateNewSubCategoryAsync(text, flowData.CategoryId.Value);
 
-            logger.LogInformation("Created subcategory {Name} under category {CategoryId}", text, state.SelectedCategoryId);
+            logger.LogInformation("Created subcategory {Name} under category {CategoryId}", text, flowData.CategoryId);
 
-            // Save subcategory info for tag creation flow
-            state.CreatedSubCategoryId = createdSubCategory.Id;
-            state.CreatedSubCategoryName = createdSubCategory.Name;
-            state.Step = StepAskAddTag;
-            await AskIfAddTagsAsync(botClient, chat, state, cancellationToken);
+            flowData.CreatedSubCategoryId = createdSubCategory.Id;
+            flowData.CreatedSubCategoryName = createdSubCategory.Name;
+            flowData.CurrentStep = SettingsExpensesFlowData.StepAskAddTag;
+            await AskIfAddTagsAsync(botClient, chat, state, flowData, cancellationToken);
         }
-        else if (state.Step == StepAddTag)
+        else if (flowData.CurrentStep == SettingsExpensesFlowData.StepAddTag)
         {
-            if (state.CreatedSubCategoryId is null)
+            if (flowData.CreatedSubCategoryId is null)
             {
                 await botClient.SendMessage(chat.Id, "❌ Errore: sottocategoria non trovata.", cancellationToken: cancellationToken);
-                state.Reset();
-                state.Step = StepSelectAction;
-                await ShowActionsAsync(botClient, chat, state, cancellationToken);
+                flowData.CurrentStep = SettingsExpensesFlowData.StepSelectAction;
+                await ShowActionsAsync(botClient, chat, state, flowData, cancellationToken);
                 return;
             }
 
             using var scope = scopeFactory.CreateScope();
             var categoryService = scope.ServiceProvider.GetRequiredService<CategoryService>();
-            await categoryService.CreateTagAsync(text, state.CreatedSubCategoryId.Value);
+            await categoryService.CreateTagAsync(text, flowData.CreatedSubCategoryId.Value);
 
-            logger.LogInformation("Created tag {Name} for subcategory {SubCategoryId}", text, state.CreatedSubCategoryId);
+            logger.LogInformation("Created tag {Name} for subcategory {SubCategoryId}", text, flowData.CreatedSubCategoryId);
 
-            // Show option to add more tags or finish
             await ShowTagAddedAsync(botClient, chat, state, text, cancellationToken);
         }
     }
 
-    public override bool CanHandleBack(ConversationState state) =>
-        state.Step is StepSelectAction or StepAddCategory or StepSelectCategoryForSub or StepAddSubCategory or StepAskAddTag or StepAddTag;
+    public override bool CanHandleBack(ConversationState state)
+    {
+        var flowData = state.GetFlowData<SettingsExpensesFlowData>();
+        if (flowData == null) return false;
+
+        return flowData.CurrentStep is SettingsExpensesFlowData.StepSelectAction
+            or SettingsExpensesFlowData.StepAddCategory
+            or SettingsExpensesFlowData.StepSelectCategoryForSub
+            or SettingsExpensesFlowData.StepAddSubCategory
+            or SettingsExpensesFlowData.StepAskAddTag
+            or SettingsExpensesFlowData.StepAddTag;
+    }
 
     public override async Task<bool> HandleBackAsync(
         ITelegramBotClient botClient,
@@ -216,33 +237,43 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
         ConversationState state,
         CancellationToken cancellationToken)
     {
-        logger.LogInformation("Settings expenses back from step {Step}", state.Step);
+        var flowData = state.GetFlowData<SettingsExpensesFlowData>()!;
+        logger.LogInformation("Settings expenses back from step {Step}", flowData.CurrentStep);
 
-        switch (state.Step)
+        switch (flowData.CurrentStep)
         {
-            case StepSelectAction:
-                // Go back to settings root via controller
-                state.Step = SettingsFlowHandler.SettingsRootStep;
-                return false;
-            case StepAddCategory:
-            case StepSelectCategoryForSub:
-                state.Step = StepSelectAction;
-                await ShowActionsAsync(botClient, chat, state, cancellationToken);
+            case SettingsExpensesFlowData.StepSelectAction:
+                // Go back to settings root
+                var settingsFlowData = new SettingsFlowData();
+                state.SetFlowData(settingsFlowData);
+                return false; // Let controller handle showing settings root
+
+            case SettingsExpensesFlowData.StepAddCategory:
+            case SettingsExpensesFlowData.StepSelectCategoryForSub:
+                flowData.CurrentStep = SettingsExpensesFlowData.StepSelectAction;
+                await ShowActionsAsync(botClient, chat, state, flowData, cancellationToken);
                 return true;
-            case StepAddSubCategory:
-                state.Step = StepSelectCategoryForSub;
+
+            case SettingsExpensesFlowData.StepAddSubCategory:
+                flowData.CurrentStep = SettingsExpensesFlowData.StepSelectCategoryForSub;
                 await ShowCategoriesForSubAsync(botClient, chat, state, cancellationToken);
                 return true;
-            case StepAskAddTag:
-            case StepAddTag:
+
+            case SettingsExpensesFlowData.StepAskAddTag:
+            case SettingsExpensesFlowData.StepAddTag:
                 // When going back from tag flow, finish with subcategory creation confirmation
-                var createdSubCatName = state.CreatedSubCategoryName;
-                var createdForCat = state.SelectedCategoryName;
-                state.Reset();
-                state.Step = StepSelectAction;
-                await ShowActionsAsync(botClient, chat, state, cancellationToken,
+                var createdSubCatName = flowData.CreatedSubCategoryName;
+                var createdForCat = flowData.CategoryName;
+
+                // Reset for next action
+                flowData.CreatedSubCategoryId = null;
+                flowData.CreatedSubCategoryName = null;
+                flowData.CurrentStep = SettingsExpensesFlowData.StepSelectAction;
+
+                await ShowActionsAsync(botClient, chat, state, flowData, cancellationToken,
                     $"✅ Sottocategoria *{createdSubCatName}* creata in *{createdForCat}*");
                 return true;
+
             default:
                 return false;
         }
@@ -252,6 +283,7 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
+        SettingsExpensesFlowData flowData,
         CancellationToken cancellationToken,
         string? headerOverride = null)
     {
@@ -329,6 +361,7 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
+        SettingsExpensesFlowData flowData,
         CancellationToken cancellationToken)
     {
         var keyboard = new InlineKeyboardMarkup([
@@ -339,7 +372,7 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
         var msg = await botClient.TryEditOrSendFlowMessageAsync(
             chat.Id,
             state,
-            $"✏️ Inserisci il nome della nuova sottocategoria per *{state.SelectedCategoryName}*:",
+            $"✏️ Inserisci il nome della nuova sottocategoria per *{flowData.CategoryName}*:",
             ParseMode.Markdown,
             keyboard,
             cancellationToken);
@@ -351,6 +384,7 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
+        SettingsExpensesFlowData flowData,
         CancellationToken cancellationToken)
     {
         var keyboard = new InlineKeyboardMarkup([
@@ -362,7 +396,7 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
         var msg = await botClient.TryEditOrSendFlowMessageAsync(
             chat.Id,
             state,
-            $"✅ Sottocategoria *{state.CreatedSubCategoryName}* creata\\!\n\nVuoi aggiungere dei tag?",
+            $"✅ Sottocategoria *{flowData.CreatedSubCategoryName}* creata\\!\n\nVuoi aggiungere dei tag?",
             ParseMode.MarkdownV2,
             keyboard,
             cancellationToken);
@@ -374,6 +408,7 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
+        SettingsExpensesFlowData flowData,
         CancellationToken cancellationToken)
     {
         var keyboard = new InlineKeyboardMarkup([
@@ -384,7 +419,7 @@ public class ExpensesFlowHandler(IServiceScopeFactory scopeFactory, ILogger<Expe
         var msg = await botClient.TryEditOrSendFlowMessageAsync(
             chat.Id,
             state,
-            $"🏷️ Inserisci il nome del tag per *{state.CreatedSubCategoryName}*:",
+            $"🏷️ Inserisci il nome del tag per *{flowData.CreatedSubCategoryName}*:",
             ParseMode.Markdown,
             keyboard,
             cancellationToken);

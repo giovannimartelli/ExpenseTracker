@@ -9,7 +9,7 @@ public interface ISubFlow
     string SettingsMenuText { get; }
     string SettingsCallbackName { get; }
     string SettingsCallbackData { get; }
-    string SettingsEntryStep { get; }
+
     Task StartFromSettingsRootAsync(
         ITelegramBotClient botClient,
         Chat chat,

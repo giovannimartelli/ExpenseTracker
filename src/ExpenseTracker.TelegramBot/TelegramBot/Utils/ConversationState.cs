@@ -1,52 +1,56 @@
 namespace ExpenseTracker.TelegramBot.TelegramBot.Utils;
 
+/// <summary>
+/// Holds UI infrastructure and the current flow's data.
+/// Flow-specific data is stored in FlowData property.
+/// </summary>
 public class ConversationState
 {
-    public string Step { get; set; } = Utils.MainMenuStep;
-    public int? SelectedCategoryId { get; set; }
-    public string? SelectedCategoryName { get; set; }
-    public int? SelectedSubCategoryId { get; set; }
-    public string? SelectedSubCategoryName { get; set; }
-    public int? SelectedTagId { get; set; }
-    public string? SelectedTagName { get; set; }
-    public string? Description { get; set; }
-    public decimal? Amount { get; set; }
-    public DateOnly? SelectedDate { get; set; }
-    public int? LastBotMessageId { get; set; }
-    
     /// <summary>
-    /// Stores the ID of the main menu message to prevent it from being edited or deleted by sub-flows.
+    /// Current flow's data. Null when at main menu.
+    /// </summary>
+    public IFlowData? FlowData { get; set; }
+
+    /// <summary>
+    /// ID of the last message sent by the bot (for editing).
+    /// </summary>
+    public int? LastBotMessageId { get; set; }
+
+    /// <summary>
+    /// ID of the main menu message to prevent it from being edited or deleted by sub-flows.
     /// </summary>
     public int? MainMenuMessageId { get; set; }
-    
+
     /// <summary>
-    /// Stores the message IDs of all messages sent during a sub-flow that are candidates for deletion.
+    /// Message IDs of all messages sent during a sub-flow that are candidates for deletion.
     /// </summary>
     public List<int> FlowMessageIds { get; set; } = new();
 
-    // Used for tag creation flow after subcategory creation
-    public int? CreatedSubCategoryId { get; set; }
-    public string? CreatedSubCategoryName { get; set; }
+    /// <summary>
+    /// Gets the current step. Returns MainMenuStep if no flow is active.
+    /// </summary>
+    public string CurrentStep => FlowData?.CurrentStep ?? Utils.MainMenuStep;
 
+    /// <summary>
+    /// Gets the flow data cast to the specified type.
+    /// Returns null if FlowData is null or not of the expected type.
+    /// </summary>
+    public T? GetFlowData<T>() where T : class, IFlowData => FlowData as T;
+
+    /// <summary>
+    /// Sets the flow data, replacing any existing data.
+    /// </summary>
+    public void SetFlowData<T>(T data) where T : class, IFlowData => FlowData = data;
+
+    /// <summary>
+    /// Resets the flow data to null (returns to main menu state).
+    /// Does NOT reset UI infrastructure (LastBotMessageId, MainMenuMessageId, FlowMessageIds).
+    /// </summary>
     public void Reset()
     {
-        Step = Utils.MainMenuStep;
-        SelectedCategoryId = null;
-        SelectedCategoryName = null;
-        SelectedSubCategoryId = null;
-        SelectedSubCategoryName = null;
-        SelectedTagId = null;
-        SelectedTagName = null;
-        Description = null;
-        Amount = null;
-        SelectedDate = null;
-        LastBotMessageId = null;
-        CreatedSubCategoryId = null;
-        CreatedSubCategoryName = null;
-        // Note: MainMenuMessageId and FlowMessageIds are NOT reset here
-        // They are managed separately by the flow cleanup logic
+        FlowData = null;
     }
-    
+
     /// <summary>
     /// Tracks a message ID for later deletion when returning to main menu.
     /// </summary>
@@ -57,7 +61,7 @@ public class ConversationState
             FlowMessageIds.Add(messageId);
         }
     }
-    
+
     /// <summary>
     /// Clears all tracked flow message IDs after they have been deleted.
     /// </summary>
@@ -65,7 +69,7 @@ public class ConversationState
     {
         FlowMessageIds.Clear();
     }
-    
+
     /// <summary>
     /// Resets the LastBotMessageId to point to the main menu message.
     /// </summary>

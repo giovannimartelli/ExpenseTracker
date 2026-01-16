@@ -105,14 +105,14 @@ public class FlowController
         var textHandler = _handlers.SingleOrDefault(h => h.CanHandleTextInput(state));
         if (textHandler != null)
         {
-            _logger.LogInformation("Text input handled by {HandlerType} in step {Step}", textHandler.GetType().Name, state.Step);
+            _logger.LogInformation("Text input handled by {HandlerType} in step {Step}", textHandler.GetType().Name, state.CurrentStep);
             await textHandler.HandleTextInputAsync(botClient, message, state, cancellationToken);
             // await DeleteLastBotMessage(botClient, chat, state, cancellationToken);
             return;
         }
 
         // No handler found
-        _logger.LogWarning("No handler found for text '{Text}' in step {Step}", text, state.Step);
+        _logger.LogWarning("No handler found for text '{Text}' in step {Step}", text, state.CurrentStep);
         await botClient.SendFlowMessageAsync(
             chatId: chat.Id,
             state,
@@ -159,7 +159,7 @@ public class FlowController
         }
 
         // No handler found
-        _logger.LogWarning("No handler found for callback '{CallbackData}' in step {Step}", callbackData, state.Step);
+        _logger.LogWarning("No handler found for callback '{CallbackData}' in step {Step}", callbackData, state.CurrentStep);
         await botClient.AnswerCallbackQuery(
             callbackQuery.Id,
             text: "❓ Unrecognized action",
@@ -207,7 +207,7 @@ public class FlowController
         ConversationState state,
         CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Handling back from step {Step}", state.Step);
+        _logger.LogInformation("Handling back from step {Step}", state.CurrentStep);
 
         // Find the active handler (one that can handle the current state)
         var activeHandler = _handlers.FirstOrDefault(h => h.CanHandleBack(state));
@@ -240,13 +240,13 @@ public class FlowController
         var handler = _handlers.FirstOrDefault(h => h.CanHandleWebAppData(state));
         if (handler != null)
         {
-            _logger.LogInformation("WebApp data handled by {HandlerType} in step {Step}", handler.GetType().Name, state.Step);
+            _logger.LogInformation("WebApp data handled by {HandlerType} in step {Step}", handler.GetType().Name, state.CurrentStep);
             await handler.HandleWebAppDataAsync(botClient, message, state, cancellationToken);
             return;
         }
 
         // No handler found
-        _logger.LogWarning("No handler found for WebApp data in step {Step}", state.Step);
+        _logger.LogWarning("No handler found for WebApp data in step {Step}", state.CurrentStep);
         await botClient.SendFlowMessageAsync(
             chatId: chat.Id,
             state,

@@ -33,13 +33,6 @@ public class InsertExpenseFlowHandler(
     private const string ButtonBack = "◀️ Indietro";
     private const string ButtonMainMenu = "🏠 Menu principale";
 
-    private const string SelectCategoryStep = "AddExpense_SelectCategory";
-    private const string SelectSubCategoryStep = "AddExpense_SelectSubCategory";
-    private const string SelectTagStep = "AddExpense_SelectTag";
-    private const string AddDescriptionStep = "AddExpense_AddDescription";
-    private const string InsertAmountStep = "AddExpense_InsertAmount";
-    private const string SelectDateStep = "AddExpense_SelectDate";
-
     public override string GetMenuItemInfo() => MenuCommandText;
     public override bool CanHandleMenuCommand(string command) => command == MenuCommandText;
 
@@ -50,17 +43,23 @@ public class InsertExpenseFlowHandler(
         CancellationToken cancellationToken)
     {
         logger.LogInformation("Starting insert expense flow for chat {ChatId}", chat.Id);
-        state.Step = SelectCategoryStep;
-        await ShowCategoriesAsync(botClient, chat, state, cancellationToken);
+
+        var flowData = new InsertExpenseFlowData();
+        state.SetFlowData(flowData);
+
+        await ShowCategoriesAsync(botClient, chat, state, flowData, cancellationToken);
     }
 
     public override bool CanHandleCallback(string callbackName, string callbackData, ConversationState state)
     {
-        return state.Step switch
+        var flowData = state.GetFlowData<InsertExpenseFlowData>();
+        if (flowData == null) return false;
+
+        return flowData.CurrentStep switch
         {
-            SelectCategoryStep => callbackName == CallbackCategoryPrefix,
-            SelectSubCategoryStep => callbackName == CallbackSubCategoryPrefix,
-            SelectTagStep => callbackName is CallbackTagPrefix or CallbackSkipTag,
+            InsertExpenseFlowData.StepSelectCategory => callbackName == CallbackCategoryPrefix,
+            InsertExpenseFlowData.StepSelectSubCategory => callbackName == CallbackSubCategoryPrefix,
+            InsertExpenseFlowData.StepSelectTag => callbackName is CallbackTagPrefix or CallbackSkipTag,
             _ => false
         };
     }
@@ -74,6 +73,7 @@ public class InsertExpenseFlowHandler(
         CancellationToken cancellationToken)
     {
         var chat = callbackQuery.Message!.Chat;
+        var flowData = state.GetFlowData<InsertExpenseFlowData>()!;
 
         await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
 
@@ -91,12 +91,12 @@ public class InsertExpenseFlowHandler(
                 return;
             }
 
-            state.SelectedCategoryId = categoryId;
-            state.SelectedCategoryName = category.Name;
-            state.Step = SelectSubCategoryStep;
+            flowData.CategoryId = categoryId;
+            flowData.CategoryName = category.Name;
+            flowData.CurrentStep = InsertExpenseFlowData.StepSelectSubCategory;
 
             logger.LogInformation("Category selected: {CategoryId} - {CategoryName}", categoryId, category.Name);
-            await ShowSubCategoriesAsync(botClient, chat, state, cancellationToken);
+            await ShowSubCategoriesAsync(botClient, chat, state, flowData, cancellationToken);
         }
         else if (callbackName == CallbackSubCategoryPrefix)
         {
@@ -112,8 +112,8 @@ public class InsertExpenseFlowHandler(
                 return;
             }
 
-            state.SelectedSubCategoryId = subCategoryId;
-            state.SelectedSubCategoryName = subCategory.Name;
+            flowData.SubCategoryId = subCategoryId;
+            flowData.SubCategoryName = subCategory.Name;
 
             logger.LogInformation("SubCategory selected: {SubCategoryId} - {SubCategoryName}", subCategoryId, subCategory.Name);
 
@@ -121,13 +121,13 @@ public class InsertExpenseFlowHandler(
             var tags = await categoryService.GetTagsBySubCategoryIdAsync(subCategoryId);
             if (tags.Count > 0)
             {
-                state.Step = SelectTagStep;
-                await ShowTagsAsync(botClient, chat, state, tags, cancellationToken);
+                flowData.CurrentStep = InsertExpenseFlowData.StepSelectTag;
+                await ShowTagsAsync(botClient, chat, state, flowData, tags, cancellationToken);
             }
             else
             {
-                state.Step = AddDescriptionStep;
-                await AskForDescriptionAsync(botClient, chat, state, cancellationToken);
+                flowData.CurrentStep = InsertExpenseFlowData.StepAddDescription;
+                await AskForDescriptionAsync(botClient, chat, state, flowData, cancellationToken);
             }
         }
         else if (callbackName == CallbackTagPrefix)
@@ -144,27 +144,32 @@ public class InsertExpenseFlowHandler(
                 return;
             }
 
-            state.SelectedTagId = tagId;
-            state.SelectedTagName = tag.Name;
-            state.Step = AddDescriptionStep;
+            flowData.TagId = tagId;
+            flowData.TagName = tag.Name;
+            flowData.CurrentStep = InsertExpenseFlowData.StepAddDescription;
 
             logger.LogInformation("Tag selected: {TagId} - {TagName}", tagId, tag.Name);
-            await AskForDescriptionAsync(botClient, chat, state, cancellationToken);
+            await AskForDescriptionAsync(botClient, chat, state, flowData, cancellationToken);
         }
         else if (callbackName == CallbackSkipTag)
         {
-            state.SelectedTagId = null;
-            state.SelectedTagName = null;
-            state.Step = AddDescriptionStep;
+            flowData.TagId = null;
+            flowData.TagName = null;
+            flowData.CurrentStep = InsertExpenseFlowData.StepAddDescription;
 
             logger.LogInformation("Tag skipped");
-            await AskForDescriptionAsync(botClient, chat, state, cancellationToken);
+            await AskForDescriptionAsync(botClient, chat, state, flowData, cancellationToken);
         }
     }
 
     public override bool CanHandleTextInput(ConversationState state)
     {
-        return state.Step is AddDescriptionStep or InsertAmountStep or SelectDateStep;
+        var flowData = state.GetFlowData<InsertExpenseFlowData>();
+        if (flowData == null) return false;
+
+        return flowData.CurrentStep is InsertExpenseFlowData.StepAddDescription
+            or InsertExpenseFlowData.StepInsertAmount
+            or InsertExpenseFlowData.StepSelectDate;
     }
 
     public override async Task HandleTextInputAsync(
@@ -175,22 +180,23 @@ public class InsertExpenseFlowHandler(
     {
         var chat = message.Chat;
         var text = message.Text!;
+        var flowData = state.GetFlowData<InsertExpenseFlowData>()!;
 
-        if (state.Step == AddDescriptionStep)
+        if (flowData.CurrentStep == InsertExpenseFlowData.StepAddDescription)
         {
-            state.Description = text;
-            state.Step = InsertAmountStep;
+            flowData.Description = text;
+            flowData.CurrentStep = InsertExpenseFlowData.StepInsertAmount;
 
             logger.LogInformation("Description entered: {Description}", text);
-            await AskForAmountAsync(botClient, chat, state, cancellationToken);
+            await AskForAmountAsync(botClient, chat, state, flowData, cancellationToken);
         }
-        else if (state.Step == InsertAmountStep)
+        else if (flowData.CurrentStep == InsertExpenseFlowData.StepInsertAmount)
         {
-            await HandleAmountInputAsync(botClient, chat, text, state, cancellationToken);
+            await HandleAmountInputAsync(botClient, chat, text, state, flowData, cancellationToken);
         }
-        else if (state.Step == SelectDateStep)
+        else if (flowData.CurrentStep == InsertExpenseFlowData.StepSelectDate)
         {
-            await HandleDateSelectionAsync(botClient, chat, text, state, cancellationToken);
+            await HandleDateSelectionAsync(botClient, chat, text, state, flowData, cancellationToken);
         }
     }
 
@@ -199,37 +205,40 @@ public class InsertExpenseFlowHandler(
         Chat chat,
         string text,
         ConversationState state,
+        InsertExpenseFlowData flowData,
         CancellationToken cancellationToken)
     {
         if (text == ButtonUseTodayDate)
         {
-            state.SelectedDate = DateOnly.FromDateTime(DateTime.UtcNow);
-            logger.LogInformation("Using today's date: {Date}", state.SelectedDate);
-            await SaveExpenseAsync(botClient, chat, state, cancellationToken);
+            flowData.SelectedDate = DateOnly.FromDateTime(DateTime.UtcNow);
+            logger.LogInformation("Using today's date: {Date}", flowData.SelectedDate);
+            await SaveExpenseAsync(botClient, chat, state, flowData, cancellationToken);
         }
         else if (text == ButtonBack)
         {
-            state.Amount = null;
-            state.Step = InsertAmountStep;
+            flowData.Amount = null;
+            flowData.CurrentStep = InsertExpenseFlowData.StepInsertAmount;
             logger.LogInformation("Going back to amount input");
-            // await RemoveReplyKeyboardAsync(botClient, chat, cancellationToken);
-            await AskForAmountAsync(botClient, chat, state, cancellationToken);
+            await AskForAmountAsync(botClient, chat, state, flowData, cancellationToken);
         }
         else if (text == ButtonMainMenu)
         {
-            // Reset state and show main menu keyboard
             state.Reset();
             logger.LogInformation("Returning to main menu");
             await ShowMainMenuMessageAsync(botClient, chat, cancellationToken);
         }
-        // Note: ButtonChooseDate opens WebApp, handled via HandleWebAppDataAsync
     }
 
-    public override bool CanHandleBack(ConversationState state) =>
-        state.Step is SelectSubCategoryStep
-            or SelectTagStep
-            or AddDescriptionStep
-            or InsertAmountStep;
+    public override bool CanHandleBack(ConversationState state)
+    {
+        var flowData = state.GetFlowData<InsertExpenseFlowData>();
+        if (flowData == null) return false;
+
+        return flowData.CurrentStep is InsertExpenseFlowData.StepSelectSubCategory
+            or InsertExpenseFlowData.StepSelectTag
+            or InsertExpenseFlowData.StepAddDescription
+            or InsertExpenseFlowData.StepInsertAmount;
+    }
 
     public override async Task<bool> HandleBackAsync(
         ITelegramBotClient botClient,
@@ -237,87 +246,64 @@ public class InsertExpenseFlowHandler(
         ConversationState state,
         CancellationToken cancellationToken)
     {
-        logger.LogInformation("Handling back from step {Step}", state.Step);
+        var flowData = state.GetFlowData<InsertExpenseFlowData>()!;
+        logger.LogInformation("Handling back from step {Step}", flowData.CurrentStep);
 
-        switch (state.Step)
+        switch (flowData.CurrentStep)
         {
-            case SelectSubCategoryStep:
-                // Go back to category selection
-                state.SelectedCategoryId = null;
-                state.SelectedCategoryName = null;
-                state.Step = SelectCategoryStep;
-                await ShowCategoriesAsync(botClient, chat, state, cancellationToken);
+            case InsertExpenseFlowData.StepSelectSubCategory:
+                flowData.CategoryId = null;
+                flowData.CategoryName = null;
+                flowData.CurrentStep = InsertExpenseFlowData.StepSelectCategory;
+                await ShowCategoriesAsync(botClient, chat, state, flowData, cancellationToken);
                 return true;
 
-            case SelectTagStep:
-                // Go back to subcategory selection
-                state.SelectedSubCategoryId = null;
-                state.SelectedSubCategoryName = null;
-                state.Step = SelectSubCategoryStep;
-                await ShowSubCategoriesAsync(botClient, chat, state, cancellationToken);
+            case InsertExpenseFlowData.StepSelectTag:
+                flowData.SubCategoryId = null;
+                flowData.SubCategoryName = null;
+                flowData.CurrentStep = InsertExpenseFlowData.StepSelectSubCategory;
+                await ShowSubCategoriesAsync(botClient, chat, state, flowData, cancellationToken);
                 return true;
 
-            case AddDescriptionStep:
-                // Go back to tag selection if there were tags, otherwise to subcategory
-                state.SelectedTagId = null;
-                state.SelectedTagName = null;
+            case InsertExpenseFlowData.StepAddDescription:
+                flowData.TagId = null;
+                flowData.TagName = null;
                 using (var scope = scopeFactory.CreateScope())
                 {
                     var categoryService = scope.ServiceProvider.GetRequiredService<CategoryService>();
-                    var tags = await categoryService.GetTagsBySubCategoryIdAsync(state.SelectedSubCategoryId!.Value);
+                    var tags = await categoryService.GetTagsBySubCategoryIdAsync(flowData.SubCategoryId!.Value);
                     if (tags.Count > 0)
                     {
-                        state.Step = SelectTagStep;
-                        await ShowTagsAsync(botClient, chat, state, tags, cancellationToken);
+                        flowData.CurrentStep = InsertExpenseFlowData.StepSelectTag;
+                        await ShowTagsAsync(botClient, chat, state, flowData, tags, cancellationToken);
                         return true;
                     }
                 }
 
-                state.SelectedSubCategoryId = null;
-                state.SelectedSubCategoryName = null;
-                state.Step = SelectSubCategoryStep;
-                await ShowSubCategoriesAsync(botClient, chat, state, cancellationToken);
+                flowData.SubCategoryId = null;
+                flowData.SubCategoryName = null;
+                flowData.CurrentStep = InsertExpenseFlowData.StepSelectSubCategory;
+                await ShowSubCategoriesAsync(botClient, chat, state, flowData, cancellationToken);
                 return true;
 
-            case InsertAmountStep:
-                // Go back to description input
-                state.Description = null;
-                state.Step = AddDescriptionStep;
-                await AskForDescriptionAsync(botClient, chat, state, cancellationToken);
+            case InsertExpenseFlowData.StepInsertAmount:
+                flowData.Description = null;
+                flowData.CurrentStep = InsertExpenseFlowData.StepAddDescription;
+                await AskForDescriptionAsync(botClient, chat, state, flowData, cancellationToken);
                 return true;
 
             default:
-                // Not in a step we can handle, return to main menu
                 return false;
         }
     }
 
     // ========== PRIVATE HELPER METHODS ==========
 
-    private async Task RemoveReplyKeyboardAsync(
-        ITelegramBotClient botClient,
-        Chat chat,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var msg = await botClient.SendMessage(
-                chatId: chat.Id,
-                text: "⏳",
-                replyMarkup: new ReplyKeyboardRemove(),
-                cancellationToken: cancellationToken);
-            await botClient.DeleteMessage(chat.Id, msg.MessageId, cancellationToken);
-        }
-        catch
-        {
-            // Ignore errors
-        }
-    }
-
     private async Task ShowCategoriesAsync(
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
+        InsertExpenseFlowData flowData,
         CancellationToken cancellationToken)
     {
         using var scope = scopeFactory.CreateScope();
@@ -348,11 +334,12 @@ public class InsertExpenseFlowHandler(
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
+        InsertExpenseFlowData flowData,
         CancellationToken cancellationToken)
     {
         using var scope = scopeFactory.CreateScope();
         var categoryService = scope.ServiceProvider.GetRequiredService<CategoryService>();
-        var subCategories = await categoryService.GetSubCategoriesByCategoryIdAsync(state.SelectedCategoryId!.Value);
+        var subCategories = await categoryService.GetSubCategoriesByCategoryIdAsync(flowData.CategoryId!.Value);
 
         var buttons = subCategories
             .Select(c => new[] { Utils.Utils.ButtonWithCallbackdata(c.Name, CallbackSubCategoryPrefix, c.Id) })
@@ -361,7 +348,7 @@ public class InsertExpenseFlowHandler(
         buttons.Add([Utils.Utils.Back]);
 
         var keyboard = new InlineKeyboardMarkup(buttons);
-        var text = $"📁 *{state.SelectedCategoryName}*\n\n📂 Select a subcategory:";
+        var text = $"📁 *{flowData.CategoryName}*\n\n📂 Select a subcategory:";
 
         var msg = await botClient.TryEditOrSendFlowMessageAsync(
             chat.Id,
@@ -378,6 +365,7 @@ public class InsertExpenseFlowHandler(
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
+        InsertExpenseFlowData flowData,
         List<Domain.Entities.Tag> tags,
         CancellationToken cancellationToken)
     {
@@ -389,7 +377,7 @@ public class InsertExpenseFlowHandler(
         buttons.Add([Utils.Utils.Back]);
 
         var keyboard = new InlineKeyboardMarkup(buttons);
-        var text = $"📁 *{state.SelectedCategoryName}* > *{state.SelectedSubCategoryName}*\n\n🏷️ Seleziona un tag:";
+        var text = $"📁 *{flowData.CategoryName}* > *{flowData.SubCategoryName}*\n\n🏷️ Seleziona un tag:";
 
         var msg = await botClient.TryEditOrSendFlowMessageAsync(
             chat.Id,
@@ -406,6 +394,7 @@ public class InsertExpenseFlowHandler(
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
+        InsertExpenseFlowData flowData,
         CancellationToken cancellationToken)
     {
         var keyboard = new InlineKeyboardMarkup([
@@ -413,7 +402,7 @@ public class InsertExpenseFlowHandler(
             [Utils.Utils.MainMenu]
         ]);
 
-        var text = $"📁 *{state.SelectedCategoryName}* > *{state.SelectedSubCategoryName}*\n\n" +
+        var text = $"📁 *{flowData.CategoryName}* > *{flowData.SubCategoryName}*\n\n" +
                    "📝 Enter a description for the expense:";
 
         var msg = await botClient.TryEditOrSendFlowMessageAsync(
@@ -431,6 +420,7 @@ public class InsertExpenseFlowHandler(
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
+        InsertExpenseFlowData flowData,
         CancellationToken cancellationToken)
     {
         var keyboard = new InlineKeyboardMarkup([
@@ -438,8 +428,8 @@ public class InsertExpenseFlowHandler(
             [Utils.Utils.MainMenu]
         ]);
 
-        var text = $"📁 *{state.SelectedCategoryName}* > *{state.SelectedSubCategoryName}*\n" +
-                   $"📝 {state.Description}\n\n" +
+        var text = $"📁 *{flowData.CategoryName}* > *{flowData.SubCategoryName}*\n" +
+                   $"📝 {flowData.Description}\n\n" +
                    "💰 Enter the amount (e.g., 12.50):";
 
         var msg = await botClient.TryEditOrSendFlowMessageAsync(
@@ -458,9 +448,9 @@ public class InsertExpenseFlowHandler(
         Chat chat,
         string amountText,
         ConversationState state,
+        InsertExpenseFlowData flowData,
         CancellationToken cancellationToken)
     {
-        // Normalize input (replace comma with dot)
         var normalizedAmount = amountText.Replace(",", ".");
 
         if (!decimal.TryParse(normalizedAmount, NumberStyles.Float, CultureInfo.InvariantCulture, out var amount) || amount <= 0)
@@ -473,20 +463,20 @@ public class InsertExpenseFlowHandler(
             return;
         }
 
-        state.Amount = amount;
-        state.Step = SelectDateStep;
+        flowData.Amount = amount;
+        flowData.CurrentStep = InsertExpenseFlowData.StepSelectDate;
 
         logger.LogInformation("Amount entered: {Amount}", amount);
-        await AskForDateAsync(botClient, chat, state, cancellationToken);
+        await AskForDateAsync(botClient, chat, state, flowData, cancellationToken);
     }
 
     private async Task AskForDateAsync(
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
+        InsertExpenseFlowData flowData,
         CancellationToken cancellationToken)
     {
-        // All buttons in ReplyKeyboard
         var replyKeyboard = new ReplyKeyboardMarkup(new[]
         {
             new[] { new KeyboardButton(ButtonUseTodayDate) },
@@ -497,10 +487,10 @@ public class InsertExpenseFlowHandler(
             ResizeKeyboard = true
         };
 
-        var tagInfo = state.SelectedTagName != null ? $"\n🏷️ {state.SelectedTagName}" : "";
-        var text = $"📁 *{state.SelectedCategoryName}* > *{state.SelectedSubCategoryName}*{tagInfo}\n" +
-                   $"📝 {state.Description}\n" +
-                   $"💰 €{state.Amount:F2}\n\n" +
+        var tagInfo = flowData.TagName != null ? $"\n🏷️ {flowData.TagName}" : "";
+        var text = $"📁 *{flowData.CategoryName}* > *{flowData.SubCategoryName}*{tagInfo}\n" +
+                   $"📝 {flowData.Description}\n" +
+                   $"💰 €{flowData.Amount:F2}\n\n" +
                    "📆 *Seleziona la data della spesa:*";
 
         var msg = await botClient.SendMessage(
@@ -514,8 +504,11 @@ public class InsertExpenseFlowHandler(
         state.LastBotMessageId = msg.MessageId;
     }
 
-    public override bool CanHandleWebAppData(ConversationState state) =>
-        state.Step == SelectDateStep;
+    public override bool CanHandleWebAppData(ConversationState state)
+    {
+        var flowData = state.GetFlowData<InsertExpenseFlowData>();
+        return flowData?.CurrentStep == InsertExpenseFlowData.StepSelectDate;
+    }
 
     public override async Task HandleWebAppDataAsync(
         ITelegramBotClient botClient,
@@ -525,6 +518,7 @@ public class InsertExpenseFlowHandler(
     {
         var chat = message.Chat;
         var dateString = message.WebAppData!.Data;
+        var flowData = state.GetFlowData<InsertExpenseFlowData>()!;
 
         if (!DateOnly.TryParse(dateString, out var selectedDate))
         {
@@ -537,15 +531,16 @@ public class InsertExpenseFlowHandler(
             return;
         }
 
-        state.SelectedDate = selectedDate;
+        flowData.SelectedDate = selectedDate;
         logger.LogInformation("Date selected from WebApp: {Date}", selectedDate);
-        await SaveExpenseAsync(botClient, chat, state, cancellationToken);
+        await SaveExpenseAsync(botClient, chat, state, flowData, cancellationToken);
     }
 
     private async Task SaveExpenseAsync(
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
+        InsertExpenseFlowData flowData,
         CancellationToken cancellationToken)
     {
         try
@@ -554,33 +549,31 @@ public class InsertExpenseFlowHandler(
             var expenseService = scope.ServiceProvider.GetRequiredService<ExpenseService>();
 
             await expenseService.CreateExpenseAsync(
-                subCategoryId: state.SelectedSubCategoryId!.Value,
-                amount: state.Amount!.Value,
-                description: state.Description ?? throw new InvalidOperationException("Description cannot be null"),
+                subCategoryId: flowData.SubCategoryId!.Value,
+                amount: flowData.Amount!.Value,
+                description: flowData.Description ?? throw new InvalidOperationException("Description cannot be null"),
                 notes: null,
                 performedBy: chat.Username ?? chat.Id.ToString(),
-                tagId: state.SelectedTagId,
-                state.SelectedDate!.Value);
+                tagId: flowData.TagId,
+                flowData.SelectedDate!.Value);
 
             logger.LogInformation("Expense created: {Amount} - {Description} - Tag: {TagId} - Date: {Date}",
-                state.Amount, state.Description, state.SelectedTagId, state.SelectedDate);
+                flowData.Amount, flowData.Description, flowData.TagId, flowData.SelectedDate);
 
-            // Build confirmation message with main menu keyboard
-            var tagInfo = state.SelectedTagName != null ? $"\n🏷️ {state.SelectedTagName}" : "";
+            var tagInfo = flowData.TagName != null ? $"\n🏷️ {flowData.TagName}" : "";
             var confirmationText = $"✅ *Spesa registrata!*\n\n" +
-                                   $"📁 {state.SelectedCategoryName} > {state.SelectedSubCategoryName}{tagInfo}\n" +
-                                   $"📝 {state.Description}\n" +
-                                   $"💰 €{state.Amount:F2}\n" +
-                                   $"📆 {state.SelectedDate:dd/MM/yyyy}";
+                                   $"📁 {flowData.CategoryName} > {flowData.SubCategoryName}{tagInfo}\n" +
+                                   $"📝 {flowData.Description}\n" +
+                                   $"💰 €{flowData.Amount:F2}\n" +
+                                   $"📆 {flowData.SelectedDate:dd/MM/yyyy}";
 
-            // Send confirmation with main menu keyboard
             await botClient.SendFlowMessageAsync(
                 chatId: chat.Id,
                 state,
                 text: confirmationText,
                 cancellationToken: cancellationToken);
             await ShowMainMenuMessageAsFlowMessageAsync(botClient, state, chat, cancellationToken);
-            // Reset state
+
             state.Reset();
         }
         catch (Exception ex)
@@ -606,6 +599,7 @@ public class InsertExpenseFlowHandler(
             replyMarkup: GetMainMenuKeyboard(),
             cancellationToken: cancellationToken);
     }
+
     private async Task ShowMainMenuMessageAsFlowMessageAsync(
         ITelegramBotClient botClient,
         ConversationState state,

@@ -12,9 +12,8 @@ namespace ExpenseTracker.TelegramBot.TelegramBot.Flows;
 /// </summary>
 public class SettingsFlowHandler(IServiceProvider serviceProvider, ILogger<SettingsFlowHandler> logger) : FlowHandler
 {
-    public const string SettingsRootStep = "Settings_Root";
     private const string MenuCommandText = "⚙️ Settings";
-    
+
     private List<ISubFlow> SubFlows => serviceProvider.GetServices<FlowHandler>().OfType<ISubFlow>().ToList();
 
     public override string GetMenuItemInfo() => MenuCommandText;
@@ -27,14 +26,21 @@ public class SettingsFlowHandler(IServiceProvider serviceProvider, ILogger<Setti
         CancellationToken cancellationToken)
     {
         logger.LogInformation("Opening settings root for chat {ChatId}", chat.Id);
-        state.Step = SettingsRootStep;
+
+        var flowData = new SettingsFlowData();
+        state.SetFlowData(flowData);
+
         await ShowSettingsRootAsync(botClient, chat, state, cancellationToken);
     }
 
     public override bool CanHandleCallback(string callbackName, string callbackData, ConversationState state)
     {
+        var flowData = state.GetFlowData<SettingsFlowData>();
+        if (flowData == null) return false;
+
         // Delegate to subflows only when we are in settings root
-        return state.Step == SettingsRootStep && SubFlows.Any(f => f.SettingsCallbackName == callbackName && f.SettingsCallbackData == callbackData);
+        return flowData.CurrentStep == SettingsFlowData.StepRoot
+               && SubFlows.Any(f => f.SettingsCallbackName == callbackName && f.SettingsCallbackData == callbackData);
     }
 
     public override async Task HandleCallbackAsync(
@@ -47,11 +53,10 @@ public class SettingsFlowHandler(IServiceProvider serviceProvider, ILogger<Setti
     {
         var chat = callbackQuery.Message!.Chat;
         await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
-        
+
         var targetSubFlow = SubFlows.FirstOrDefault(f => f.SettingsCallbackName == callbackName && f.SettingsCallbackData == callbackData);
         if (targetSubFlow != null)
         {
-            state.Step = targetSubFlow.SettingsEntryStep;
             await targetSubFlow.StartFromSettingsRootAsync(botClient, chat, state, cancellationToken);
         }
     }
@@ -64,7 +69,11 @@ public class SettingsFlowHandler(IServiceProvider serviceProvider, ILogger<Setti
         ConversationState state,
         CancellationToken cancellationToken) => Task.CompletedTask;
 
-    public override bool CanHandleBack(ConversationState state) => state.Step == SettingsRootStep;
+    public override bool CanHandleBack(ConversationState state)
+    {
+        var flowData = state.GetFlowData<SettingsFlowData>();
+        return flowData?.CurrentStep == SettingsFlowData.StepRoot;
+    }
 
     public override async Task<bool> HandleBackAsync(
         ITelegramBotClient botClient,
@@ -72,12 +81,16 @@ public class SettingsFlowHandler(IServiceProvider serviceProvider, ILogger<Setti
         ConversationState state,
         CancellationToken cancellationToken)
     {
-        state.Step = SettingsRootStep;
+        var flowData = state.GetFlowData<SettingsFlowData>();
+        if (flowData != null)
+        {
+            flowData.CurrentStep = SettingsFlowData.StepRoot;
+        }
         await ShowSettingsRootAsync(botClient, chat, state, cancellationToken);
         return true;
     }
 
-    private async Task ShowSettingsRootAsync(
+    public async Task ShowSettingsRootAsync(
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
