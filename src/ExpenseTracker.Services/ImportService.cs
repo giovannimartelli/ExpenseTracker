@@ -76,10 +76,29 @@ public class ImportService(AppDbContext context, ILogger<ImportService> logger)
                     }
                 }
 
-                // Create budget
-                if (budgetCell.TryGetValue<decimal>(out var budgetAmount) && budgetAmount > 0)
+                // Create budgets - read default and monthly overrides
+                // Column E = default, Columns F-Q = Jan-Dec overrides
+                var defaultBudget = budgetCell.TryGetValue<decimal>(out var defaultAmount) ? defaultAmount : 0m;
+                var monthlyBudgets = new decimal[12];
+
+                for (var month = 1; month <= 12; month++)
                 {
-                    await CreateBudgetAsync(subCategory.Id, year, budgetAmount, result);
+                    // Columns F-Q are columns 6-17 (month 1=col 6, month 12=col 17)
+                    var monthCell = worksheet.Cell(row, 5 + month);
+                    if (monthCell.TryGetValue<decimal>(out var monthAmount) && monthAmount > 0)
+                    {
+                        monthlyBudgets[month - 1] = monthAmount;
+                    }
+                    else
+                    {
+                        monthlyBudgets[month - 1] = defaultBudget;
+                    }
+                }
+
+                // Only create budgets if we have at least one non-zero value
+                if (monthlyBudgets.Any(b => b > 0))
+                {
+                    await CreateBudgetsAsync(subCategory.Id, year, monthlyBudgets, result);
                 }
             }
 
@@ -150,11 +169,13 @@ public class ImportService(AppDbContext context, ILogger<ImportService> logger)
         logger.LogDebug("Created tag: {Name}", name);
     }
 
-    private async Task CreateBudgetAsync(int subCategoryId, int year, decimal amount, ImportResult result)
+    private async Task CreateBudgetsAsync(int subCategoryId, int year, decimal[] monthlyAmounts, ImportResult result)
     {
-        // Create budget for each month (same amount)
         for (var month = 1; month <= 12; month++)
         {
+            var amount = monthlyAmounts[month - 1];
+            if (amount <= 0) continue;
+
             var existing = await context.Budgets
                 .FirstOrDefaultAsync(b => b.SubCategoryId == subCategoryId && b.Year == year && b.Month == month);
 
@@ -176,7 +197,7 @@ public class ImportService(AppDbContext context, ILogger<ImportService> logger)
             }
         }
 
-        logger.LogDebug("Created/updated budgets for subcategory {SubCategoryId}, year {Year}, amount {Amount}",
-            subCategoryId, year, amount);
+        logger.LogDebug("Created/updated budgets for subcategory {SubCategoryId}, year {Year}",
+            subCategoryId, year);
     }
 }
