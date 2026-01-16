@@ -24,7 +24,7 @@ public class FlowController
         _mainMenuKeyboard = GenerateMainMenuKeyboard();
     }
 
-    private ReplyKeyboardMarkup GenerateMainMenuKeyboard()
+    public ReplyKeyboardMarkup GenerateMainMenuKeyboard()
     {
         var menuItems = _handlers
             .Select(h => h.GetMenuItemInfo())

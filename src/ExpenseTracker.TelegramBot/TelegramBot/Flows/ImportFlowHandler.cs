@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ExpenseTracker.Services;
 using ExpenseTracker.TelegramBot.TelegramBot.Utils;
 using Telegram.Bot;
@@ -18,14 +19,27 @@ public class ImportFlowData : IFlowData
 
 public class ImportFlowHandler(
     IServiceScopeFactory scopeFactory,
-    ILogger<ImportFlowHandler> logger) : FlowHandler
+    IServiceProvider serviceProvider,
+    ILogger<ImportFlowHandler> logger) : FlowHandler, ISubFlow
 {
-    private const string MenuCommandText = "📥 Importa Excel";
+    // ISubFlow contract
+    public string SettingsMenuText => "📥 Importa Budgets";
+    public string SettingsCallbackName => "settings_import";
+    public string SettingsCallbackData => "budgets";
 
-    public override string GetMenuItemInfo() => MenuCommandText;
-    public override bool CanHandleMenuCommand(string command) => command == MenuCommandText;
+    public override string? GetMenuItemInfo() => null;
+    public override bool CanHandleMenuCommand(string command) => false;
 
-    public override async Task HandleMenuSelectionAsync(
+    public override Task HandleMenuSelectionAsync(
+        ITelegramBotClient botClient,
+        Chat chat,
+        ConversationState state,
+        CancellationToken cancellationToken)
+    {
+        throw new UnreachableException("ImportFlowHandler is a sub-flow, not a main menu item");
+    }
+
+    public async Task StartFromSettingsRootAsync(
         ITelegramBotClient botClient,
         Chat chat,
         ConversationState state,
@@ -111,7 +125,10 @@ public class ImportFlowHandler(
             return true;
         }
 
-        return false;
+        // Go back to settings root
+        var settingsFlowData = new SettingsFlowData();
+        state.SetFlowData(settingsFlowData);
+        return false; // Let controller handle showing settings root
     }
 
     public override bool CanHandleDocument(ConversationState state)
@@ -198,10 +215,17 @@ public class ImportFlowHandler(
                 chat.Id,
                 resultText,
                 parseMode: ParseMode.Markdown,
-                replyMarkup: GetMainMenuKeyboard(),
                 cancellationToken: cancellationToken);
 
-            state.Reset();
+            // Return to settings root
+            var settingsFlowData = new SettingsFlowData();
+            state.SetFlowData(settingsFlowData);
+
+            var settingsHandler = serviceProvider.GetServices<FlowHandler>()
+                .OfType<SettingsFlowHandler>()
+                .First();
+
+            await settingsHandler.ShowSettingsRootAsync(botClient, chat, state, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -210,8 +234,17 @@ public class ImportFlowHandler(
             await botClient.SendMessage(
                 chat.Id,
                 $"❌ Errore durante l'elaborazione: {ex.Message}",
-                replyMarkup: GetMainMenuKeyboard(),
                 cancellationToken: cancellationToken);
+
+            // Return to settings root
+            var settingsFlowDataErr = new SettingsFlowData();
+            state.SetFlowData(settingsFlowDataErr);
+
+            var settingsHandlerErr = serviceProvider.GetServices<FlowHandler>()
+                .OfType<SettingsFlowHandler>()
+                .First();
+
+            await settingsHandlerErr.ShowSettingsRootAsync(botClient, chat, state, cancellationToken);
         }
     }
 
@@ -265,17 +298,5 @@ public class ImportFlowHandler(
 
         state.LastBotMessageId = msg.MessageId;
     }
-
-    private static ReplyKeyboardMarkup GetMainMenuKeyboard()
-    {
-        return new ReplyKeyboardMarkup(new[]
-        {
-            new[] { new KeyboardButton("💰 Inserisci spesa") },
-            new[] { new KeyboardButton("📥 Importa Excel") },
-            new[] { new KeyboardButton("⚙️ Settings") }
-        })
-        {
-            ResizeKeyboard = true
-        };
-    }
+    
 }
