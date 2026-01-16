@@ -293,8 +293,8 @@ public class ExpensesFlowHandler(
         string? headerOverride = null)
     {
         var keyboard = new InlineKeyboardMarkup([
-            [Utils.Utils.ButtonWithCallbackdata("➕ Categoria", CallbackAddCategory, "start"),
-             Utils.Utils.ButtonWithCallbackdata("➕ Sottocategoria", CallbackAddSubCategory, "start")],
+            [Utils.Utils.ButtonWithCallbackdata("+ Inserisci Categoria", CallbackAddCategory, "start"),
+             Utils.Utils.ButtonWithCallbackdata("+ Inserisci Sottocategoria", CallbackAddSubCategory, "start")],
             [Utils.Utils.Back],
             [Utils.Utils.MainMenu]
         ]);
