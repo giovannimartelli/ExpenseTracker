@@ -311,8 +311,14 @@ public class InsertExpenseFlowHandler(
         var categoryService = scope.ServiceProvider.GetRequiredService<CategoryService>();
         var categories = await categoryService.GetAllCategoriesAsync();
 
-        var buttons = categories
-            .Select(c => new[] { Utils.Utils.ButtonWithCallbackdata(c.Name, CallbackCategoryPrefix, c.Id) })
+        // Arrange category buttons in rows of 2
+        var categoryButtons = categories
+            .Select(c => Utils.Utils.ButtonWithCallbackdata(c.Name, CallbackCategoryPrefix, c.Id))
+            .ToArray();
+
+        var buttons = categoryButtons
+            .Chunk(2)
+            .Select(chunk => chunk.ToArray())
             .ToList();
 
         buttons.Add([Utils.Utils.MainMenu]);
@@ -342,8 +348,14 @@ public class InsertExpenseFlowHandler(
         var categoryService = scope.ServiceProvider.GetRequiredService<CategoryService>();
         var subCategories = await categoryService.GetSubCategoriesByCategoryIdAsync(flowData.CategoryId!.Value);
 
-        var buttons = subCategories
-            .Select(c => new[] { Utils.Utils.ButtonWithCallbackdata(c.Name, CallbackSubCategoryPrefix, c.Id) })
+        // Arrange subcategory buttons in rows of 2
+        var subCategoryButtons = subCategories
+            .Select(c => Utils.Utils.ButtonWithCallbackdata(c.Name, CallbackSubCategoryPrefix, c.Id))
+            .ToArray();
+
+        var buttons = subCategoryButtons
+            .Chunk(2)
+            .Select(chunk => chunk.ToArray())
             .ToList();
 
         buttons.Add([Utils.Utils.Back]);
@@ -370,8 +382,14 @@ public class InsertExpenseFlowHandler(
         List<Domain.Entities.Tag> tags,
         CancellationToken cancellationToken)
     {
-        var buttons = tags
-            .Select(t => new[] { Utils.Utils.ButtonWithCallbackdata($"🏷️ {t.Name}", CallbackTagPrefix, t.Id) })
+        // Arrange tag buttons in rows of 2
+        var tagButtons = tags
+            .Select(t => Utils.Utils.ButtonWithCallbackdata($"🏷️ {t.Name}", CallbackTagPrefix, t.Id))
+            .ToArray();
+
+        var buttons = tagButtons
+            .Chunk(2)
+            .Select(chunk => chunk.ToArray())
             .ToList();
 
         buttons.Add([Utils.Utils.ButtonWithCallbackdata("⏭️ Salta", CallbackSkipTag, "skip")]);
@@ -480,9 +498,9 @@ public class InsertExpenseFlowHandler(
     {
         var replyKeyboard = new ReplyKeyboardMarkup(new[]
         {
-            new[] { new KeyboardButton(ButtonUseTodayDate) },
-            new[] { KeyboardButton.WithWebApp(ButtonChooseDate, new WebAppInfo { Url = _webAppOptions.DatePickerUrl }) },
-            new[] { new KeyboardButton(ButtonBack), new KeyboardButton(ButtonMainMenu) }
+            new[] { new KeyboardButton(ButtonUseTodayDate), KeyboardButton.WithWebApp(ButtonChooseDate, new WebAppInfo { Url = _webAppOptions.DatePickerUrl }) },
+            new[] { new KeyboardButton(ButtonBack) },
+            new[] { new KeyboardButton(ButtonMainMenu) }
         })
         {
             ResizeKeyboard = true

@@ -96,11 +96,14 @@ public class SettingsFlowHandler(IServiceProvider serviceProvider, ILogger<Setti
         ConversationState state,
         CancellationToken cancellationToken)
     {
-        var buttons = SubFlows
-            .Select(flow => new[]
-            {
-                Utils.Utils.ButtonWithCallbackdata(flow.SettingsMenuText, flow.SettingsCallbackName, flow.SettingsCallbackData)
-            })
+        // Arrange subflow buttons in rows of 2
+        var subFlowButtons = SubFlows
+            .Select(flow => Utils.Utils.ButtonWithCallbackdata(flow.SettingsMenuText, flow.SettingsCallbackName, flow.SettingsCallbackData))
+            .ToArray();
+
+        var buttons = subFlowButtons
+            .Chunk(2)
+            .Select(chunk => chunk.ToArray())
             .ToList();
 
         buttons.Add([Utils.Utils.MainMenu]);

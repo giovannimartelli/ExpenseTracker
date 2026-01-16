@@ -288,8 +288,8 @@ public class ExpensesFlowHandler(
         string? headerOverride = null)
     {
         var keyboard = new InlineKeyboardMarkup([
-            [Utils.Utils.ButtonWithCallbackdata("➕ Categoria", CallbackAddCategory, "start")],
-            [Utils.Utils.ButtonWithCallbackdata("➕ Sottocategoria", CallbackAddSubCategory, "start")],
+            [Utils.Utils.ButtonWithCallbackdata("➕ Categoria", CallbackAddCategory, "start"),
+             Utils.Utils.ButtonWithCallbackdata("➕ Sottocategoria", CallbackAddSubCategory, "start")],
             [Utils.Utils.Back],
             [Utils.Utils.MainMenu]
         ]);
@@ -337,8 +337,14 @@ public class ExpensesFlowHandler(
         var categoryService = scope.ServiceProvider.GetRequiredService<CategoryService>();
         var categories = await categoryService.GetAllCategoriesAsync();
 
-        var buttons = categories
-            .Select(c => new[] { Utils.Utils.ButtonWithCallbackdata(c.Name, CallbackPickCategory, c.Id) })
+        // Arrange category buttons in rows of 2
+        var categoryButtons = categories
+            .Select(c => Utils.Utils.ButtonWithCallbackdata(c.Name, CallbackPickCategory, c.Id))
+            .ToArray();
+
+        var buttons = categoryButtons
+            .Chunk(2)
+            .Select(chunk => chunk.ToArray())
             .ToList();
 
         buttons.Add([Utils.Utils.Back]);
@@ -388,8 +394,8 @@ public class ExpensesFlowHandler(
         CancellationToken cancellationToken)
     {
         var keyboard = new InlineKeyboardMarkup([
-            [Utils.Utils.ButtonWithCallbackdata("➕ Aggiungi tag", CallbackAddTag, "start")],
-            [Utils.Utils.ButtonWithCallbackdata("⏭️ Salta", CallbackSkipTags, "skip")],
+            [Utils.Utils.ButtonWithCallbackdata("➕ Aggiungi tag", CallbackAddTag, "start"),
+             Utils.Utils.ButtonWithCallbackdata("⏭️ Salta", CallbackSkipTags, "skip")],
             [Utils.Utils.MainMenu]
         ]);
 

@@ -32,7 +32,14 @@ public class FlowController
             .Where(info => info != null)
             .Select(info => new KeyboardButton(info!))
             .ToArray();
-        return new ReplyKeyboardMarkup(menuItems)
+
+        // Arrange buttons in rows of 2
+        var rows = menuItems
+            .Chunk(2)
+            .Select(chunk => chunk.ToArray())
+            .ToArray();
+
+        return new ReplyKeyboardMarkup(rows)
         {
             ResizeKeyboard = true,
             OneTimeKeyboard = false
