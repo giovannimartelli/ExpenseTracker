@@ -1,4 +1,5 @@
 using AlbertQuackmore.TelegramBot.TelegramBot.Utils;
+using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -10,9 +11,13 @@ namespace AlbertQuackmore.TelegramBot.TelegramBot.Flows;
 /// Settings flow that acts as a menu and hosts settings subflows.
 /// Currently supports expense settings: add category and add subcategory.
 /// </summary>
-[Flow("Settings")]
-public class SettingsFlowHandler(IServiceProvider serviceProvider, ILogger<SettingsFlowHandler> logger) : FlowHandler
+[Flow("Settings", typeof(SettingsFlowOptions))]
+public class SettingsFlowHandler(
+    IServiceProvider serviceProvider,
+    IOptions<SettingsFlowOptions> options,
+    ILogger<SettingsFlowHandler> logger) : FlowHandler
 {
+    private readonly SettingsFlowOptions _options = options.Value;
     private const string MenuCommandText = "⚙️ Settings";
 
     private List<ISubFlow> SubFlows => serviceProvider.GetServices<FlowHandler>().OfType<ISubFlow>().ToList();

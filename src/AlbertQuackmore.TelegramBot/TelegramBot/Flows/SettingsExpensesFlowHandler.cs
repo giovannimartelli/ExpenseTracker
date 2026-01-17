@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using AlbertQuackmore.Services;
 using AlbertQuackmore.TelegramBot.TelegramBot.Utils;
+using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -14,12 +15,14 @@ namespace AlbertQuackmore.TelegramBot.TelegramBot.Flows;
 /// Entry from SettingsRoot via callback settings_expenses/expenses.
 /// Flow: select action -> (add category -> text) OR (add subcategory -> pick cat -> text)
 /// </summary>
-[Flow("SettingsExpenses")]
+[Flow("SettingsExpenses", typeof(SettingsExpensesFlowOptions))]
 public class ExpensesFlowHandler(
     IServiceScopeFactory scopeFactory,
     IServiceProvider serviceProvider,
+    IOptions<SettingsExpensesFlowOptions> options,
     ILogger<ExpensesFlowHandler> logger) : FlowHandler, ISubFlow
 {
+    private readonly SettingsExpensesFlowOptions _options = options.Value;
     // ISubFlow contract
     public string SettingsMenuText => "⚙️ Impostazioni spese";
     public string SettingsCallbackName => CallbackSettingsExpenses;

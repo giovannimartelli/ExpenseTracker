@@ -15,9 +15,6 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.Configure<TelegramOptions>(
     builder.Configuration.GetSection(TelegramOptions.SectionName));
 
-builder.Services.Configure<WebAppOptions>(
-    builder.Configuration.GetSection(WebAppOptions.SectionName));
-
 builder.Services.Configure<FlowOptions>(
     builder.Configuration.GetSection(FlowOptions.SectionName));
 
@@ -53,11 +50,27 @@ var flowHandlerTypes = Assembly.GetExecutingAssembly()
         }
 
         return enabledFlows.Contains(flowAttribute.Name, StringComparer.OrdinalIgnoreCase);
-    });
+    })
+    .ToList();
 
+// Register FlowHandlers and their options
 foreach (var handlerType in flowHandlerTypes)
 {
     builder.Services.AddSingleton(typeof(FlowHandler), handlerType);
+
+    // Auto-register flow options if specified in the attribute
+    var flowAttribute = handlerType.GetCustomAttribute<FlowAttribute>()!;
+    if (flowAttribute.OptionsType != null)
+    {
+        var sectionName = $"Flows:{flowAttribute.Name}";
+        var configureMethod = typeof(OptionsConfigurationServiceCollectionExtensions)
+            .GetMethods()
+            .First(m => m.Name == "Configure" && m.GetParameters().Length == 2 &&
+                        m.GetParameters()[1].ParameterType == typeof(IConfiguration));
+
+        var genericMethod = configureMethod.MakeGenericMethod(flowAttribute.OptionsType);
+        genericMethod.Invoke(null, [builder.Services, builder.Configuration.GetSection(sectionName)]);
+    }
 }
 
 // Register FlowController as Singleton (stateless, menu keyboard is built once)

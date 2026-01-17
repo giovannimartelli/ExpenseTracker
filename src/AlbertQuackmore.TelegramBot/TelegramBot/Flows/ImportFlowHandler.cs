@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using AlbertQuackmore.Services;
 using AlbertQuackmore.TelegramBot.TelegramBot.Utils;
+using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -17,12 +18,14 @@ public class ImportFlowData : IFlowData
     public int? Year { get; set; }
 }
 
-[Flow("ImportBudgets")]
+[Flow("ImportBudgets", typeof(ImportFlowOptions))]
 public class ImportFlowHandler(
     IServiceScopeFactory scopeFactory,
     IServiceProvider serviceProvider,
+    IOptions<ImportFlowOptions> options,
     ILogger<ImportFlowHandler> logger) : FlowHandler, ISubFlow
 {
+    private readonly ImportFlowOptions _options = options.Value;
     // ISubFlow contract
     public string SettingsMenuText => "📥 Importa Budgets";
     public string SettingsCallbackName => "settings_import";
@@ -88,11 +91,11 @@ public class ImportFlowHandler(
 
         if (flowData.CurrentStep == ImportFlowData.StepWaitingForYear)
         {
-            if (!int.TryParse(text, out var year) || year < 2020 || year > 2100)
+            if (!int.TryParse(text, out var year) || year < _options.MinYear || year > _options.MaxYear)
             {
                 await botClient.SendMessage(
                     chat.Id,
-                    "❌ Anno non valido. Inserisci un anno tra 2020 e 2100:",
+                    $"❌ Anno non valido. Inserisci un anno tra {_options.MinYear} e {_options.MaxYear}:",
                     cancellationToken: cancellationToken);
                 return;
             }
@@ -149,21 +152,26 @@ public class ImportFlowHandler(
         var flowData = state.GetFlowData<ImportFlowData>()!;
 
         // Validate file type
-        if (!document.FileName?.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) ?? true)
+        var hasValidExtension = _options.AllowedFileExtensions
+            .Any(ext => document.FileName?.EndsWith(ext, StringComparison.OrdinalIgnoreCase) ?? false);
+
+        if (!hasValidExtension)
         {
+            var extensions = string.Join(", ", _options.AllowedFileExtensions);
             await botClient.SendMessage(
                 chat.Id,
-                "❌ File non valido. Invia un file Excel (.xlsx)",
+                $"❌ File non valido. Formati accettati: {extensions}",
                 cancellationToken: cancellationToken);
             return;
         }
 
-        // Check file size (max 10MB)
-        if (document.FileSize > 10 * 1024 * 1024)
+        // Check file size
+        if (document.FileSize > _options.MaxFileSizeBytes)
         {
+            var maxSizeMb = _options.MaxFileSizeBytes / (1024 * 1024);
             await botClient.SendMessage(
                 chat.Id,
-                "❌ File troppo grande. Dimensione massima: 10MB",
+                $"❌ File troppo grande. Dimensione massima: {maxSizeMb}MB",
                 cancellationToken: cancellationToken);
             return;
         }

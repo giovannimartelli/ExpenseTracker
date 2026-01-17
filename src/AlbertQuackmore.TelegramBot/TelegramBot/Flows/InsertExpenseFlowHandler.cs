@@ -13,14 +13,14 @@ namespace AlbertQuackmore.TelegramBot.TelegramBot.Flows;
 /// Handles the flow for inserting a new expense.
 /// Flow: Menu → Category → Subcategory → Tag → Description → Amount → Date → Save
 /// </summary>
-[Flow("InsertExpense")]
+[Flow("InsertExpense", typeof(InsertExpenseFlowOptions))]
 public class InsertExpenseFlowHandler(
     IServiceScopeFactory scopeFactory,
-    IOptions<WebAppOptions> webAppOptions,
+    IOptions<InsertExpenseFlowOptions> options,
     Lazy<FlowController> flowController,
     ILogger<InsertExpenseFlowHandler> logger) : FlowHandler
 {
-    private readonly WebAppOptions _webAppOptions = webAppOptions.Value;
+    private readonly InsertExpenseFlowOptions _options = options.Value;
 
     private const string MenuCommandText = "💰 Inserisci spesa";
 
@@ -572,7 +572,7 @@ public class InsertExpenseFlowHandler(
             new[] { pastDayButtons[0], pastDayButtons[1] }, // Ieri, -2 days
             new[] { pastDayButtons[2], pastDayButtons[3] }, // -3 days, -4 days
             new[] { pastDayButtons[4], pastDayButtons[5] }, // -5 days, -6 days
-            new[] { KeyboardButton.WithWebApp(ButtonChooseDate, new WebAppInfo { Url = _webAppOptions.DatePickerUrl }) },
+            new[] { KeyboardButton.WithWebApp(ButtonChooseDate, new WebAppInfo { Url = _options.DatePickerUrl }) },
             new[] { new KeyboardButton(ButtonBack) },
             new[] { new KeyboardButton(ButtonMainMenu) }
         })
